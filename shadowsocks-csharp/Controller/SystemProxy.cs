@@ -24,6 +24,27 @@ namespace Shadowsocks.Controller
             _refreshReturn = InternetSetOption(IntPtr.Zero, INTERNET_OPTION_REFRESH, IntPtr.Zero, 0);
         }
 
+        public static void SetProxyPac(String pacUrl)
+        {
+            try
+            {
+                RegistryKey registry =
+                    Registry.CurrentUser.OpenSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+                        true);
+                registry.SetValue("ProxyEnable", 0);
+                registry.SetValue("ProxyServer", "");
+                registry.SetValue("AutoConfigURL", pacUrl);
+                SystemProxy.NotifyIE();
+                //Must Notify IE first, or the connections do not chanage
+                CopyProxySettingFromLan();
+            }
+            catch (Exception)
+            {
+                MessageBox.Show("can not change registry!");
+                throw;
+            }
+        }
+
         public static void Enable()
         {
             try
@@ -33,7 +54,7 @@ namespace Shadowsocks.Controller
                         true);
                 registry.SetValue("ProxyEnable", 0);
                 registry.SetValue("ProxyServer", "");
-                registry.SetValue("AutoConfigURL", "http://127.0.0.1:8090/pac?t=" + GetTimestamp(DateTime.Now));
+                registry.SetValue("AutoConfigURL", "http://127.0.0.1:8090/pac?t=" + DateTime.Now.ToString("yyyyMMddHHmmssffff"));
                 SystemProxy.NotifyIE();
                 //Must Notify IE first, or the connections do not chanage
                 CopyProxySettingFromLan();
@@ -82,11 +103,6 @@ namespace Shadowsocks.Controller
                 }
             }
             NotifyIE();
-        }
-
-        private static String GetTimestamp(DateTime value)
-        {
-            return value.ToString("yyyyMMddHHmmssffff");
         }
     }
 }

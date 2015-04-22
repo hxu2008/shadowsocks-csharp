@@ -61,7 +61,7 @@ namespace Shadowsocks.Controller
                 Console.WriteLine(e);
             }
 
-            UpdateSystemProxy();
+            //UpdateSystemProxy();
             StartReleasingMemory();
         }
 
@@ -85,7 +85,7 @@ namespace Shadowsocks.Controller
         public void ToggleEnable(bool enabled)
         {
             _config.enabled = enabled;
-            UpdateSystemProxy();
+            //UpdateSystemProxy();
             SaveConfig(_config);
             if (EnableStatusChanged != null)
             {
@@ -118,10 +118,10 @@ namespace Shadowsocks.Controller
             stopped = true;
             local.Stop();
             polipoRunner.Stop();
-            if (_config.enabled)
-            {
-                SystemProxy.Disable();
-            }
+            //if (_config.enabled)
+            //{
+            //    SystemProxy.Disable();
+            //}
         }
 
         public void TouchPACFile()
@@ -191,7 +191,7 @@ namespace Shadowsocks.Controller
 
         private void pacServer_PACFileChanged(object sender, EventArgs e)
         {
-            UpdateSystemProxy();
+            //UpdateSystemProxy();
         }
 
         private void StartReleasingMemory()
