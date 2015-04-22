@@ -39,6 +39,10 @@ namespace Shadowsocks.View
         private MenuItem menuItem1;
         private ConfigForm configForm;
 
+        private MenuItem menuIEProxySettings;
+        private MenuItem menuItemIEProxyGoagent;
+        private MenuItem menuItemIEProxyShadowSocks;
+
         public MenuViewController(ShadowsocksController controller)
         {
             LoadMenu();
@@ -112,6 +116,10 @@ namespace Shadowsocks.View
             this.quitItem = new System.Windows.Forms.MenuItem();
             this.menuItem1 = new System.Windows.Forms.MenuItem();
 
+            this.menuIEProxySettings = new System.Windows.Forms.MenuItem();
+            this.menuItemIEProxyGoagent = new MenuItem ();
+            this.menuItemIEProxyShadowSocks = new MenuItem();
+
             // 
             // contextMenu1
             // 
@@ -121,13 +129,15 @@ namespace Shadowsocks.View
             this.menuItem1,
             this.AutoStartupItem,
             this.ShareOverLANItem,
-            this.editPACFileItem,
+ //           this.editPACFileItem,
+            this.menuIEProxySettings,
             this.menuItem4,
             this.QRCodeItem,
             this.ShowLogItem,
             this.aboutItem,
             this.menuItem3,
-            this.quitItem});
+            this.quitItem
+            });
             // 
             // enableItem
             // 
@@ -210,6 +220,38 @@ namespace Shadowsocks.View
             // 
             this.menuItem1.Index = 2;
             this.menuItem1.Text = "-";
+
+            // 
+            // menuIEProxySettings
+            // 
+            this.menuIEProxySettings.Index = 5;
+            this.menuIEProxySettings.MenuItems.AddRange(new System.Windows.Forms.MenuItem[] {
+            this.menuItemIEProxyGoagent,
+            this.menuItemIEProxyShadowSocks});
+            this.menuIEProxySettings.Text = "IE &Proxy Settings";
+            // 
+            // menuItemIEProxyGoagent
+            // 
+            this.menuItemIEProxyGoagent.Index = 0;
+            this.menuItemIEProxyGoagent.Text = "http://127.0.0.1:8086/proxy.pac";
+            this.menuItemIEProxyGoagent.Click += new EventHandler(menuItemIEProxyGoagent_Click);
+            // 
+            // menuItemIEProxyGoagent
+            // 
+            this.menuItemIEProxyShadowSocks.Index = 1;
+            this.menuItemIEProxyShadowSocks.Text = "http://127.0.0.1:8090/pac";
+            this.menuItemIEProxyShadowSocks.Click += new EventHandler(menuItemIEProxyShadowSocks_Click);
+        }
+
+        void menuItemIEProxyShadowSocks_Click(object sender, EventArgs e)
+        {
+            SystemProxy.SetProxyPac("http://127.0.0.1:8090/pac?t=" + DateTime.Now.ToString("yyyyMMddHHmmssffff"));
+        }
+
+        void menuItemIEProxyGoagent_Click(object sender, EventArgs e)
+        {
+            SystemProxy.SetProxyPac("http://127.0.0.1:8086/proxy.pac");
+            
         }
 
         private void controller_ConfigChanged(object sender, EventArgs e)
