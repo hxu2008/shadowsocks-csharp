@@ -1,3 +1,46 @@
+2.3 2015-01-25
+- Use the same port for every profile
+- Use the same port for HTTP/Socks5/PAC
+- Fix GFWList PAC compatibility issue with IE11
+- Encourage users to report to GFWList when no update found
+- Minor UI improvements
+
+2.2.1 2015-01-18
+- Fix QR Code compatibility
+
+2.2 2015-01-14
+- Support updating PAC from GFWList
+- Support adding server by scanning QR Code
+- Output timestamp in logs
+- Minor fixes
+
+2.1.6 2015-01-02
+- Fix OPTIONS requests
+- Improve logs
+
+2.1.5 2014-12-25
+- Fix QR Code compatibility with iOS
+- Only left button will trigger double click on tray icon
+
+2.1.4 2014-12-20
+- Fix crash when remarks are too long
+
+2.1.3 2014-12-20
+- Add Chinese Language
+- Fix some UI issues on Windows 8
+- Fix some UI issues on high DPI screens
+- Log bind error more friendly
+- Stability issues
+
+2.1.2 2014-12-14
+- Fix sometimes Shadowsocks doesn't respond to requests
+
+2.1.1 2014-12-14
+- Add global proxy option
+
+2.1 2014-12-12
+- Add salsa20 and chacha20 support
+
 2.0.11 2014-11-23
 - Fix a crash
 - Only switch the system proxy off if we have switched it on

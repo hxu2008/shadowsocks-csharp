@@ -1,11 +1,13 @@
 ﻿using System.Security.Cryptography;
 using System.Text;
 
-namespace Shadowsocks.Encrypt
+namespace Shadowsocks.Encryption
 {
     public abstract class EncryptorBase
         : IEncryptor
     {
+        public const int MAX_INPUT_SIZE = 32768;
+
         protected EncryptorBase(string method, string password)
         {
             Method = method;

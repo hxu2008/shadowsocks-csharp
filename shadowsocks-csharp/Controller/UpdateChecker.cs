@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Shadowsocks.Model;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Net;
@@ -17,10 +18,13 @@ namespace Shadowsocks.Controller
         public string LatestVersionURL;
         public event EventHandler NewVersionFound;
 
-        public void CheckUpdate()
+        public const string Version = "2.3.1";
+
+        public void CheckUpdate(Configuration config)
         {
             // TODO test failures
             WebClient http = new WebClient();
+            http.Proxy = new WebProxy(IPAddress.Loopback.ToString(), config.localPort);
             http.DownloadStringCompleted += http_DownloadStringCompleted;
             http.DownloadStringAsync(new Uri(UpdateURL));
         }
@@ -71,6 +75,10 @@ namespace Shadowsocks.Controller
 
         private bool IsNewVersion(string url)
         {
+            if (url.IndexOf("prerelease") >= 0)
+            {
+                return false;
+            }
             // check dotnet 4.0
             AssemblyName[] references = Assembly.GetExecutingAssembly().GetReferencedAssemblies();
             Version dotNetVersion = Environment.Version;
@@ -100,7 +108,7 @@ namespace Shadowsocks.Controller
             {
                 return false;
             }
-            string currentVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString();
+            string currentVersion = Version;
 
             return CompareVersion(version, currentVersion) > 0;
         }
@@ -143,7 +151,7 @@ namespace Shadowsocks.Controller
             }
             catch (Exception ex)
             {
-                Console.Write(ex.ToString());
+                Console.WriteLine(ex.ToString());
                 return;
             }
         }

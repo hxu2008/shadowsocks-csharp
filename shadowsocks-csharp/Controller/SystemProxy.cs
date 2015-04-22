@@ -4,6 +4,8 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.IO;
+using Shadowsocks.Model;
 
 namespace Shadowsocks.Controller
 {
@@ -24,65 +26,54 @@ namespace Shadowsocks.Controller
             _refreshReturn = InternetSetOption(IntPtr.Zero, INTERNET_OPTION_REFRESH, IntPtr.Zero, 0);
         }
 
-        public static void SetProxyPac(String pacUrl)
+        public static void Update(Configuration config, bool forceDisable)
         {
+            bool global = config.global;
+            bool enabled = config.enabled;
+            if (forceDisable)
+            {
+                enabled = false;
+            }
             try
             {
                 RegistryKey registry =
                     Registry.CurrentUser.OpenSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
                         true);
-                registry.SetValue("ProxyEnable", 0);
-                registry.SetValue("ProxyServer", "");
-                registry.SetValue("AutoConfigURL", pacUrl);
+                if (enabled)
+                {
+                    if (global)
+                    {
+                        registry.SetValue("ProxyEnable", 1);
+                        registry.SetValue("ProxyServer", "127.0.0.1:" + config.localPort.ToString());
+                        registry.SetValue("AutoConfigURL", "");
+                    }
+                    else
+                    {
+                        string pacUrl;
+                        if (config.useOnlinePac && !string.IsNullOrEmpty(config.pacUrl))
+                            pacUrl = config.pacUrl;
+                        else
+                            pacUrl = "http://127.0.0.1:" + config.localPort.ToString() + "/pac?t=" + GetTimestamp(DateTime.Now);
+                        registry.SetValue("ProxyEnable", 0);
+                        registry.SetValue("ProxyServer", "");
+                        registry.SetValue("AutoConfigURL", pacUrl);
+                    }
+                }
+                else
+                {
+                    registry.SetValue("ProxyEnable", 0);
+                    registry.SetValue("ProxyServer", "");
+                    registry.SetValue("AutoConfigURL", "");
+                }
                 SystemProxy.NotifyIE();
                 //Must Notify IE first, or the connections do not chanage
                 CopyProxySettingFromLan();
             }
-            catch (Exception)
+            catch (Exception e)
             {
-                MessageBox.Show("can not change registry!");
-                throw;
-            }
-        }
-
-        public static void Enable()
-        {
-            try
-            {
-                RegistryKey registry =
-                    Registry.CurrentUser.OpenSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
-                        true);
-                registry.SetValue("ProxyEnable", 0);
-                registry.SetValue("ProxyServer", "");
-                registry.SetValue("AutoConfigURL", "http://127.0.0.1:8090/pac?t=" + DateTime.Now.ToString("yyyyMMddHHmmssffff"));
-                SystemProxy.NotifyIE();
-                //Must Notify IE first, or the connections do not chanage
-                CopyProxySettingFromLan();
-            }
-            catch (Exception)
-            {
-                MessageBox.Show("can not change registry!");
-                throw;
-            }
-        }
-
-        public static void Disable()
-        {
-            try
-            {
-                RegistryKey registry =
-                    Registry.CurrentUser.OpenSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
-                        true);
-                registry.SetValue("ProxyEnable", 0);
-                registry.SetValue("ProxyServer", "");
-                registry.SetValue("AutoConfigURL", "");
-                SystemProxy.NotifyIE();
-                CopyProxySettingFromLan();
-            }
-            catch (Exception)
-            {
-                MessageBox.Show("can not change registry!");
-                throw;
+                Logging.LogUsefulException(e);
+                // TODO this should be moved into views
+                MessageBox.Show(I18N.GetString("Failed to update registry"));
             }
         }
 
@@ -91,18 +82,29 @@ namespace Shadowsocks.Controller
             RegistryKey registry =
                 Registry.CurrentUser.OpenSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\Connections",
                     true);
-            var defulatValue = registry.GetValue("DefaultConnectionSettings");
-            var connections = registry.GetValueNames();
-            foreach (String each in connections){
-                if (!(each.Equals("DefaultConnectionSettings")
-                    || each.Equals("LAN Connection")
-                    || each.Equals("SavedLegacySettings")))
+            var defaultValue = registry.GetValue("DefaultConnectionSettings");
+            try
+            {
+                var connections = registry.GetValueNames();
+                foreach (String each in connections)
                 {
-                    //set all the connections's proxy as the lan
-                    registry.SetValue(each, defulatValue);
+                    if (!(each.Equals("DefaultConnectionSettings")
+                        || each.Equals("LAN Connection")
+                        || each.Equals("SavedLegacySettings")))
+                    {
+                        //set all the connections's proxy as the lan
+                        registry.SetValue(each, defaultValue);
+                    }
                 }
+                SystemProxy.NotifyIE();
+            } catch (IOException e) {
+                Logging.LogUsefulException(e);
             }
-            NotifyIE();
+        }
+
+        private static String GetTimestamp(DateTime value)
+        {
+            return value.ToString("yyyyMMddHHmmssffff");
         }
     }
 }

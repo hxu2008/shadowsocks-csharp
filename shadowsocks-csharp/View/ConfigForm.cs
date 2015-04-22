@@ -22,13 +22,36 @@ namespace Shadowsocks.View
 
         public ConfigForm(ShadowsocksController controller)
         {
+            this.Font = System.Drawing.SystemFonts.MessageBoxFont;
             InitializeComponent();
+
+            // a dirty hack
+            this.ServersListBox.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.PerformLayout();
+
+            UpdateTexts();
             this.Icon = Icon.FromHandle(Resources.ssw128.GetHicon());
 
             this.controller = controller;
             controller.ConfigChanged += controller_ConfigChanged;
 
             LoadCurrentConfiguration();
+        }
+
+        private void UpdateTexts()
+        {
+            AddButton.Text = I18N.GetString("&Add");
+            DeleteButton.Text = I18N.GetString("&Delete");
+            IPLabel.Text = I18N.GetString("Server IP");
+            ServerPortLabel.Text = I18N.GetString("Server Port");
+            PasswordLabel.Text = I18N.GetString("Password");
+            EncryptionLabel.Text = I18N.GetString("Encryption");
+            ProxyPortLabel.Text = I18N.GetString("Proxy Port");
+            RemarksLabel.Text = I18N.GetString("Remarks");
+            ServerGroupBox.Text = I18N.GetString("Server");
+            OKButton.Text = I18N.GetString("OK");
+            MyCancelButton.Text = I18N.GetString("Cancel");
+            this.Text = I18N.GetString("Edit Servers");
         }
 
         private void controller_ConfigChanged(object sender, EventArgs e)
@@ -56,18 +79,20 @@ namespace Shadowsocks.View
                     server = IPTextBox.Text,
                     server_port = int.Parse(ServerPortTextBox.Text),
                     password = PasswordTextBox.Text,
-                    local_port = int.Parse(ProxyPortTextBox.Text),
                     method = EncryptionSelect.Text,
                     remarks = RemarksTextBox.Text
                 };
+                int localPort = int.Parse(ProxyPortTextBox.Text);
                 Configuration.CheckServer(server);
+                Configuration.CheckPort(localPort);
                 _modifiedConfiguration.configs[_oldSelectedIndex] = server;
+                _modifiedConfiguration.localPort = localPort;
                 
                 return true;
             }
             catch (FormatException)
             {
-                MessageBox.Show("illegal port number format");
+                MessageBox.Show(I18N.GetString("Illegal port number format"));
             }
             catch (Exception ex)
             {
@@ -85,7 +110,7 @@ namespace Shadowsocks.View
                 IPTextBox.Text = server.server;
                 ServerPortTextBox.Text = server.server_port.ToString();
                 PasswordTextBox.Text = server.password;
-                ProxyPortTextBox.Text = server.local_port.ToString();
+                ProxyPortTextBox.Text = _modifiedConfiguration.localPort.ToString();
                 EncryptionSelect.Text = server.method ?? "aes-256-cfb";
                 RemarksTextBox.Text = server.remarks;
                 ServerGroupBox.Visible = true;
@@ -102,7 +127,7 @@ namespace Shadowsocks.View
             ServersListBox.Items.Clear();
             foreach (Server server in _modifiedConfiguration.configs)
             {
-                ServersListBox.Items.Add(string.IsNullOrEmpty(server.server) ? "New server" : string.IsNullOrEmpty(server.remarks)? server.server + ":" + server.server_port : server.server + ":" + server.server_port + " (" + server.remarks + ")");
+                ServersListBox.Items.Add(server.FriendlyName());
             }
         }
 
@@ -176,10 +201,10 @@ namespace Shadowsocks.View
             }
             if (_modifiedConfiguration.configs.Count == 0)
             {
-                MessageBox.Show("Please add at least one server");
+                MessageBox.Show(I18N.GetString("Please add at least one server"));
                 return;
             }
-            controller.SaveServers(_modifiedConfiguration.configs);
+            controller.SaveServers(_modifiedConfiguration.configs, _modifiedConfiguration.localPort);
             this.Close();
         }
 

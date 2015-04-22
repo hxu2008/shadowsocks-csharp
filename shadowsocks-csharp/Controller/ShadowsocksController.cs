@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
+using System.Net.Sockets;
 
 namespace Shadowsocks.Controller
 {
@@ -16,10 +17,11 @@ namespace Shadowsocks.Controller
 
         private Thread _ramThread;
 
-        private Local local;
-        private PACServer pacServer;
+        private Listener _listener;
+        private PACServer _pacServer;
         private Configuration _config;
         private PolipoRunner polipoRunner;
+        private GFWListUpdater gfwListUpdater;
         private bool stopped = false;
 
         private bool _systemProxyIsDirty = false;
@@ -31,38 +33,35 @@ namespace Shadowsocks.Controller
 
         public event EventHandler ConfigChanged;
         public event EventHandler EnableStatusChanged;
+        public event EventHandler EnableGlobalChanged;
         public event EventHandler ShareOverLANStatusChanged;
         
         // when user clicked Edit PAC, and PAC file has already created
         public event EventHandler<PathEventArgs> PACFileReadyToOpen;
+        public event EventHandler<PathEventArgs> UserRuleFileReadyToOpen;
+
+        public event EventHandler<GFWListUpdater.ResultEventArgs> UpdatePACFromGFWListCompleted;
+
+        public event ErrorEventHandler UpdatePACFromGFWListError;
+
+        public event ErrorEventHandler Errored;
 
         public ShadowsocksController()
         {
             _config = Configuration.Load();
-            polipoRunner = new PolipoRunner();
-            polipoRunner.Start(_config);
-            local = new Local(_config);
-            try
-            {
-                local.Start();
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e);
-            }
-            try
-            {
-                pacServer = new PACServer();
-                pacServer.PACFileChanged += pacServer_PACFileChanged;
-                pacServer.Start(_config);
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e);
-            }
+        }
 
-            //UpdateSystemProxy();
-            StartReleasingMemory();
+        public void Start()
+        {
+            Reload();
+        }
+
+        protected void ReportError(Exception e)
+        {
+            if (Errored != null)
+            {
+                Errored(this, new ErrorEventArgs(e));
+            }
         }
 
         public Server GetCurrentServer()
@@ -76,20 +75,49 @@ namespace Shadowsocks.Controller
             return Configuration.Load();
         }
 
-        public void SaveServers(List<Server> servers)
+        public void SaveServers(List<Server> servers, int localPort)
         {
             _config.configs = servers;
+            _config.localPort = localPort;
             SaveConfig(_config);
+        }
+
+        public bool AddServerBySSURL(string ssURL)
+        {
+            try
+            {
+                var server = new Server(ssURL);
+                _config.configs.Add(server);
+                _config.index = _config.configs.Count - 1;
+                SaveConfig(_config);
+                return true;
+            }
+            catch (Exception e)
+            {
+                Logging.LogUsefulException(e);
+                return false;
+            }
         }
 
         public void ToggleEnable(bool enabled)
         {
             _config.enabled = enabled;
-            //UpdateSystemProxy();
+            UpdateSystemProxy();
             SaveConfig(_config);
             if (EnableStatusChanged != null)
             {
                 EnableStatusChanged(this, new EventArgs());
+            }
+        }
+
+        public void ToggleGlobal(bool global)
+        {
+            _config.global = global;
+            UpdateSystemProxy();
+            SaveConfig(_config);
+            if (EnableGlobalChanged != null)
+            {
+                EnableGlobalChanged(this, new EventArgs());
             }
         }
 
@@ -116,20 +144,35 @@ namespace Shadowsocks.Controller
                 return;
             }
             stopped = true;
-            local.Stop();
-            polipoRunner.Stop();
-            //if (_config.enabled)
-            //{
-            //    SystemProxy.Disable();
-            //}
+            if (_listener != null)
+            {
+                _listener.Stop();
+            }
+            if (polipoRunner != null)
+            {
+                polipoRunner.Stop();
+            }
+            if (_config.enabled)
+            {
+                SystemProxy.Update(_config, true);
+            }
         }
 
         public void TouchPACFile()
         {
-            string pacFilename = pacServer.TouchPACFile();
+            string pacFilename = _pacServer.TouchPACFile();
             if (PACFileReadyToOpen != null)
             {
                 PACFileReadyToOpen(this, new PathEventArgs() { Path = pacFilename });
+            }
+        }
+
+        public void TouchUserRuleFile()
+        {
+            string userRuleFilename = _pacServer.TouchUserRuleFile();
+            if (UserRuleFileReadyToOpen != null)
+            {
+                UserRuleFileReadyToOpen(this, new PathEventArgs() { Path = userRuleFilename });
             }
         }
 
@@ -141,33 +184,110 @@ namespace Shadowsocks.Controller
             return "ss://" + base64;
         }
 
-
-        protected void SaveConfig(Configuration newConfig)
+        public void UpdatePACFromGFWList()
         {
-            Configuration.Save(newConfig);
+            if (gfwListUpdater != null)
+            {
+                gfwListUpdater.UpdatePACFromGFWList(_config);
+            }
+        }
+
+        public void SavePACUrl(string pacUrl)
+        {
+            _config.pacUrl = pacUrl;
+            UpdateSystemProxy();
+            SaveConfig(_config);
+            if (ConfigChanged != null)
+            {
+                ConfigChanged(this, new EventArgs());
+            }
+        }
+
+        public void UseOnlinePAC(bool useOnlinePac)
+        {
+            _config.useOnlinePac = useOnlinePac;
+            UpdateSystemProxy();
+            SaveConfig(_config);
+            if (ConfigChanged != null)
+            {
+                ConfigChanged(this, new EventArgs());
+            }
+        }
+
+        protected void Reload()
+        {
             // some logic in configuration updated the config when saving, we need to read it again
             _config = Configuration.Load();
 
-            pacServer.Stop();
-            local.Stop();
+            if (polipoRunner == null)
+            {
+                polipoRunner = new PolipoRunner();
+            }
+            if (_pacServer == null)
+            {
+                _pacServer = new PACServer();
+                _pacServer.PACFileChanged += pacServer_PACFileChanged;
+            }
+            _pacServer.UpdateConfiguration(_config);
+            if (gfwListUpdater == null)
+            {
+                gfwListUpdater = new GFWListUpdater();
+                gfwListUpdater.UpdateCompleted += pacServer_PACUpdateCompleted;
+                gfwListUpdater.Error += pacServer_PACUpdateError;
+            }
+
+            if (_listener != null)
+            {
+                _listener.Stop();
+            }
 
             // don't put polipoRunner.Start() before pacServer.Stop()
             // or bind will fail when switching bind address from 0.0.0.0 to 127.0.0.1
             // though UseShellExecute is set to true now
             // http://stackoverflow.com/questions/10235093/socket-doesnt-close-after-application-exits-if-a-launched-process-is-open
             polipoRunner.Stop();
-            polipoRunner.Start(_config);
+            try
+            {
+                polipoRunner.Start(_config);
 
-            local = new Local(_config);
-            local.Start();
-            pacServer.Start(_config);
+                Local local = new Local(_config);
+                List<Listener.Service> services = new List<Listener.Service>();
+                services.Add(local);
+                services.Add(_pacServer);
+                services.Add(new PortForwarder(polipoRunner.RunningPort));
+                _listener = new Listener(services);
+                _listener.Start(_config);
+            }
+            catch (Exception e)
+            {
+                // translate Microsoft language into human language
+                // i.e. An attempt was made to access a socket in a way forbidden by its access permissions => Port already in use
+                if (e is SocketException)
+                {
+                    SocketException se = (SocketException)e;
+                    if (se.SocketErrorCode == SocketError.AccessDenied)
+                    {
+                        e = new Exception(I18N.GetString("Port already in use"), e);
+                    }
+                }
+                Logging.LogUsefulException(e);
+                ReportError(e);
+            }
 
             if (ConfigChanged != null)
             {
                 ConfigChanged(this, new EventArgs());
             }
 
-            Util.Util.ReleaseMemory();
+            UpdateSystemProxy();
+            Util.Utils.ReleaseMemory();
+        }
+
+
+        protected void SaveConfig(Configuration newConfig)
+        {
+            Configuration.Save(newConfig);
+            Reload();
         }
 
 
@@ -175,7 +295,7 @@ namespace Shadowsocks.Controller
         {
             if (_config.enabled)
             {
-                SystemProxy.Enable();
+                SystemProxy.Update(_config, false);
                 _systemProxyIsDirty = true;
             }
             else
@@ -183,7 +303,7 @@ namespace Shadowsocks.Controller
                 // only switch it off if we have switched it on
                 if (_systemProxyIsDirty)
                 {
-                    SystemProxy.Disable();
+                    SystemProxy.Update(_config, false);
                     _systemProxyIsDirty = false;
                 }
             }
@@ -191,7 +311,19 @@ namespace Shadowsocks.Controller
 
         private void pacServer_PACFileChanged(object sender, EventArgs e)
         {
-            //UpdateSystemProxy();
+            UpdateSystemProxy();
+        }
+
+        private void pacServer_PACUpdateCompleted(object sender, GFWListUpdater.ResultEventArgs e)
+        {
+            if (UpdatePACFromGFWListCompleted != null)
+                UpdatePACFromGFWListCompleted(this, e);
+        }
+
+        private void pacServer_PACUpdateError(object sender, ErrorEventArgs e)
+        {
+            if (UpdatePACFromGFWListError != null)
+                UpdatePACFromGFWListError(this, e);
         }
 
         private void StartReleasingMemory()
@@ -205,7 +337,7 @@ namespace Shadowsocks.Controller
         {
             while (true)
             {
-                Util.Util.ReleaseMemory();
+                Util.Utils.ReleaseMemory();
                 Thread.Sleep(30 * 1000);
             }
         }

@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Shadowsocks.Controller;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -11,9 +12,13 @@ namespace Shadowsocks.Model
     {
         public List<Server> configs;
         public int index;
+        public bool global;
         public bool enabled;
         public bool shareOverLan;
         public bool isDefault;
+        public int localPort;
+        public string pacUrl;
+        public bool useOnlinePac;
 
         private static string CONFIG_FILE = "gui-config.json";
 
@@ -31,11 +36,9 @@ namespace Shadowsocks.Model
 
         public static void CheckServer(Server server)
         {
-            CheckPort(server.local_port);
             CheckPort(server.server_port);
             CheckPassword(server.password);
             CheckServer(server.server);
-            CheckRemark(server.remarks);
         }
 
         public static Configuration Load()
@@ -45,6 +48,10 @@ namespace Shadowsocks.Model
                 string configContent = File.ReadAllText(CONFIG_FILE);
                 Configuration config = SimpleJson.SimpleJson.DeserializeObject<Configuration>(configContent, new JsonSerializerStrategy());
                 config.isDefault = false;
+                if (config.localPort == 0)
+                {
+                    config.localPort = 1080;
+                }
                 return config;
             }
             catch (Exception e)
@@ -57,6 +64,7 @@ namespace Shadowsocks.Model
                 {
                     index = 0,
                     isDefault = true,
+                    localPort = 1080,
                     configs = new List<Server>()
                     {
                         GetDefaultServer()
@@ -93,30 +101,22 @@ namespace Shadowsocks.Model
 
         public static Server GetDefaultServer()
         {
-            return new Server()
-            {
-                server = "",
-                server_port = 8388,
-                local_port = 1080,
-                method = "aes-256-cfb",
-                password = "",
-                remarks = ""
-            };
+            return new Server();
         }
 
         private static void Assert(bool condition)
         {
             if (!condition)
             {
-                throw new Exception("assertion failure");
+                throw new Exception(I18N.GetString("assertion failure"));
             }
         }
 
-        private static void CheckPort(int port)
+        public static void CheckPort(int port)
         {
             if (port <= 0 || port > 65535)
             {
-                throw new ArgumentException("port out of range");
+                throw new ArgumentException(I18N.GetString("Port out of range"));
             }
         }
 
@@ -124,7 +124,7 @@ namespace Shadowsocks.Model
         {
             if (string.IsNullOrEmpty(password))
             {
-                throw new ArgumentException("password can not be blank");
+                throw new ArgumentException(I18N.GetString("Password can not be blank"));
             }
         }
 
@@ -132,13 +132,8 @@ namespace Shadowsocks.Model
         {
             if (string.IsNullOrEmpty(server))
             {
-                throw new ArgumentException("server IP can not be blank");
+                throw new ArgumentException(I18N.GetString("Server IP can not be blank"));
             }
-        }
-
-        private static void CheckRemark(string remark)
-        {
-            //remark is optional
         }
 
         private class JsonSerializerStrategy : SimpleJson.PocoJsonSerializerStrategy

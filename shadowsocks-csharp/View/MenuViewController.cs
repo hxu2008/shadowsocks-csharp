@@ -7,6 +7,9 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Text;
 using System.Windows.Forms;
+using ZXing;
+using ZXing.Common;
+using ZXing.QrCode;
 
 namespace Shadowsocks.View
 {
@@ -14,52 +17,61 @@ namespace Shadowsocks.View
     {
         // yes this is just a menu view controller
         // when config form is closed, it moves away from RAM
-        // and it should just does anything related to the config form
+        // and it should just do anything related to the config form
         
         private ShadowsocksController controller;
         private UpdateChecker updateChecker;
 
-        private NotifyIcon notifyIcon1;
+        private NotifyIcon _notifyIcon;
         private ContextMenu contextMenu1;
 
         private bool _isFirstRun;
         private MenuItem enableItem;
+        private MenuItem modeItem;
         private MenuItem AutoStartupItem;
         private MenuItem ShareOverLANItem;
         private MenuItem SeperatorItem;
         private MenuItem ConfigItem;
-        private MenuItem menuItem4;
-        private MenuItem editPACFileItem;
-        private MenuItem QRCodeItem;
-        private MenuItem ShowLogItem;
-        private MenuItem aboutItem;
         private MenuItem ServersItem;
-        private MenuItem menuItem3;
-        private MenuItem quitItem;
-        private MenuItem menuItem1;
+        private MenuItem globalModeItem;
+        private MenuItem PACModeItem;
+        private MenuItem localPACItem;
+        private MenuItem onlinePACItem;
+        private MenuItem editLocalPACItem;
+        private MenuItem updateFromGFWListItem;
+        private MenuItem editGFWUserRuleItem;
+        private MenuItem editOnlinePACItem;
         private ConfigForm configForm;
-
-        private MenuItem menuIEProxySettings;
-        private MenuItem menuItemIEProxyGoagent;
-        private MenuItem menuItemIEProxyShadowSocks;
+        private string _urlToOpen;
 
         public MenuViewController(ShadowsocksController controller)
         {
-            LoadMenu();
-            LoadTrayIcon();
-
             this.controller = controller;
+
+            LoadMenu();
+
             controller.EnableStatusChanged += controller_EnableStatusChanged;
             controller.ConfigChanged += controller_ConfigChanged;
-            controller.PACFileReadyToOpen += controller_PACFileReadyToOpen;
+            controller.PACFileReadyToOpen += controller_FileReadyToOpen;
+            controller.UserRuleFileReadyToOpen += controller_FileReadyToOpen;
             controller.ShareOverLANStatusChanged += controller_ShareOverLANStatusChanged;
+            controller.EnableGlobalChanged += controller_EnableGlobalChanged;
+            controller.Errored += controller_Errored;
+            controller.UpdatePACFromGFWListCompleted += controller_UpdatePACFromGFWListCompleted;
+            controller.UpdatePACFromGFWListError += controller_UpdatePACFromGFWListError;
+
+            _notifyIcon = new NotifyIcon();
+            UpdateTrayIcon();
+            _notifyIcon.Visible = true;
+            _notifyIcon.ContextMenu = contextMenu1;
+            _notifyIcon.MouseDoubleClick += notifyIcon1_DoubleClick;
 
             this.updateChecker = new UpdateChecker();
             updateChecker.NewVersionFound += updateChecker_NewVersionFound;
 
             LoadCurrentConfiguration();
 
-            updateChecker.CheckUpdate();
+            updateChecker.CheckUpdate(controller.GetConfiguration());
 
             if (controller.GetConfiguration().isDefault)
             {
@@ -68,7 +80,12 @@ namespace Shadowsocks.View
             }
         }
 
-        private void LoadTrayIcon()
+        void controller_Errored(object sender, System.IO.ErrorEventArgs e)
+        {
+            MessageBox.Show(e.GetException().ToString(), String.Format(I18N.GetString("Shadowsocks Error: {0}"), e.GetException().Message));
+        }
+
+        private void UpdateTrayIcon()
         {
             int dpi;
             Graphics graphics = Graphics.FromHwnd(IntPtr.Zero);
@@ -89,179 +106,87 @@ namespace Shadowsocks.View
             {
                 icon = Resources.ss24;
             }
-            notifyIcon1 = new NotifyIcon();
-            notifyIcon1.Text = "Shadowsocks";
-            notifyIcon1.Icon = Icon.FromHandle(icon.GetHicon());
-            notifyIcon1.Visible = true;
+            Configuration config = controller.GetConfiguration();
+            bool enabled = config.enabled;
+            bool global = config.global;
+            if (!enabled)
+            {
+                Bitmap iconCopy = new Bitmap(icon);
+                for (int x = 0; x < iconCopy.Width; x++)
+                {
+                    for (int y = 0; y < iconCopy.Height; y++)
+                    {
+                        Color color = icon.GetPixel(x, y);
+                        iconCopy.SetPixel(x, y, Color.FromArgb((byte)(color.A / 1.25), color.R, color.G, color.B));
+                    }
+                }
+                icon = iconCopy;
+            }
+            _notifyIcon.Icon = Icon.FromHandle(icon.GetHicon());
 
-            notifyIcon1.ContextMenu = contextMenu1;
-            notifyIcon1.DoubleClick +=notifyIcon1_DoubleClick;
+            // we want to show more details but notify icon title is limited to 63 characters
+            string text = I18N.GetString("Shadowsocks") + " " + UpdateChecker.Version + "\n" +
+                (enabled ?
+                    I18N.GetString("System Proxy On: ") + (global ? I18N.GetString("Global") : I18N.GetString("PAC")) :
+                    String.Format(I18N.GetString("Running: Port {0}"), config.localPort))  // this feedback is very important because they need to know Shadowsocks is running
+                + "\n" + config.GetCurrentServer().FriendlyName();
+            _notifyIcon.Text = text.Substring(0, Math.Min(63, text.Length));
+        }
+
+        private MenuItem CreateMenuItem(string text, EventHandler click)
+        {
+            return new MenuItem(I18N.GetString(text), click);
+        }
+
+        private MenuItem CreateMenuGroup(string text, MenuItem[] items)
+        {
+            return new MenuItem(I18N.GetString(text), items);
         }
 
         private void LoadMenu()
         {
-            this.contextMenu1 = new System.Windows.Forms.ContextMenu();
-            this.enableItem = new System.Windows.Forms.MenuItem();
-            this.AutoStartupItem = new System.Windows.Forms.MenuItem();
-            this.ShareOverLANItem = new System.Windows.Forms.MenuItem();
-            this.ServersItem = new System.Windows.Forms.MenuItem();
-            this.SeperatorItem = new System.Windows.Forms.MenuItem();
-            this.ConfigItem = new System.Windows.Forms.MenuItem();
-            this.menuItem4 = new System.Windows.Forms.MenuItem();
-            this.editPACFileItem = new System.Windows.Forms.MenuItem();
-            this.QRCodeItem = new System.Windows.Forms.MenuItem();
-            this.ShowLogItem = new System.Windows.Forms.MenuItem();
-            this.aboutItem = new System.Windows.Forms.MenuItem();
-            this.menuItem3 = new System.Windows.Forms.MenuItem();
-            this.quitItem = new System.Windows.Forms.MenuItem();
-            this.menuItem1 = new System.Windows.Forms.MenuItem();
-
-            this.menuIEProxySettings = new System.Windows.Forms.MenuItem();
-            this.menuItemIEProxyGoagent = new MenuItem ();
-            this.menuItemIEProxyShadowSocks = new MenuItem();
-
-            // 
-            // contextMenu1
-            // 
-            this.contextMenu1.MenuItems.AddRange(new System.Windows.Forms.MenuItem[] {
-            this.enableItem,
-            this.ServersItem,
-            this.menuItem1,
-            this.AutoStartupItem,
-            this.ShareOverLANItem,
- //           this.editPACFileItem,
-            this.menuIEProxySettings,
-            this.menuItem4,
-            this.QRCodeItem,
-            this.ShowLogItem,
-            this.aboutItem,
-            this.menuItem3,
-            this.quitItem
+            this.contextMenu1 = new ContextMenu(new MenuItem[] {
+                this.enableItem = CreateMenuItem("Enable System Proxy", new EventHandler(this.EnableItem_Click)),
+                this.modeItem = CreateMenuGroup("Mode", new MenuItem[] {
+                    this.PACModeItem = CreateMenuItem("PAC", new EventHandler(this.PACModeItem_Click)),
+                    this.globalModeItem = CreateMenuItem("Global", new EventHandler(this.GlobalModeItem_Click))
+                }),
+                this.ServersItem = CreateMenuGroup("Servers", new MenuItem[] {
+                    this.SeperatorItem = new MenuItem("-"),
+                    this.ConfigItem = CreateMenuItem("Edit Servers...", new EventHandler(this.Config_Click)),
+                    CreateMenuItem("Show QRCode...", new EventHandler(this.QRCodeItem_Click)),
+                    CreateMenuItem("Scan QRCode from Screen...", new EventHandler(this.ScanQRCodeItem_Click))
+                }),
+                CreateMenuGroup("PAC ", new MenuItem[] {
+                    this.localPACItem = CreateMenuItem("Local PAC", new EventHandler(this.LocalPACItem_Click)),
+                    this.onlinePACItem = CreateMenuItem("Online PAC", new EventHandler(this.OnlinePACItem_Click)),
+                    new MenuItem("-"),
+                    this.editLocalPACItem = CreateMenuItem("Edit Local PAC File...", new EventHandler(this.EditPACFileItem_Click)),
+                    this.updateFromGFWListItem = CreateMenuItem("Update Local PAC from GFWList", new EventHandler(this.UpdatePACFromGFWListItem_Click)),
+                    this.editGFWUserRuleItem = CreateMenuItem("Edit User Rule for GFWList...", new EventHandler(this.EditUserRuleFileForGFWListItem_Click)),
+                    this.editOnlinePACItem = CreateMenuItem("Edit Online PAC URL...", new EventHandler(this.UpdateOnlinePACURLItem_Click)),
+                }),
+                new MenuItem("-"),
+                this.AutoStartupItem = CreateMenuItem("Start on Boot", new EventHandler(this.AutoStartupItem_Click)),
+                this.ShareOverLANItem = CreateMenuItem("Allow Clients from LAN", new EventHandler(this.ShareOverLANItem_Click)),
+                new MenuItem("-"),
+                CreateMenuItem("Show Logs...", new EventHandler(this.ShowLogItem_Click)),
+                CreateMenuItem("About...", new EventHandler(this.AboutItem_Click)),
+                new MenuItem("-"),
+                CreateMenuItem("Quit", new EventHandler(this.Quit_Click))
             });
-            // 
-            // enableItem
-            // 
-            this.enableItem.Index = 0;
-            this.enableItem.Text = "&Enable";
-            this.enableItem.Click += new System.EventHandler(this.EnableItem_Click);
-            // 
-            // AutoStartupItem
-            // 
-            this.AutoStartupItem.Index = 3;
-            this.AutoStartupItem.Text = "Start on Boot";
-            this.AutoStartupItem.Click += new System.EventHandler(this.AutoStartupItem_Click);
-            // 
-            // ShareOverLANItem
-            // 
-            this.ShareOverLANItem.Index = 4;
-            this.ShareOverLANItem.Text = "Share over LAN";
-            this.ShareOverLANItem.Click += new System.EventHandler(this.ShareOverLANItem_Click);
-            // 
-            // ServersItem
-            // 
-            this.ServersItem.Index = 1;
-            this.ServersItem.MenuItems.AddRange(new System.Windows.Forms.MenuItem[] {
-            this.SeperatorItem,
-            this.ConfigItem});
-            this.ServersItem.Text = "&Servers";
-            // 
-            // SeperatorItem
-            // 
-            this.SeperatorItem.Index = 0;
-            this.SeperatorItem.Text = "-";
-            // 
-            // ConfigItem
-            // 
-            this.ConfigItem.Index = 1;
-            this.ConfigItem.Text = "Edit Servers...";
-            this.ConfigItem.Click += new System.EventHandler(this.Config_Click);
-            // 
-            // menuItem4
-            // 
-            this.menuItem4.Index = 6;
-            this.menuItem4.Text = "-";
-            // 
-            // editPACFileItem
-            // 
-            this.editPACFileItem.Index = 5;
-            this.editPACFileItem.Text = "Edit &PAC File...";
-            this.editPACFileItem.Click += new System.EventHandler(this.EditPACFileItem_Click);
-            // 
-            // QRCodeItem
-            // 
-            this.QRCodeItem.Index = 7;
-            this.QRCodeItem.Text = "Show &QRCode...";
-            this.QRCodeItem.Click += new System.EventHandler(this.QRCodeItem_Click);
-            // 
-            // ShowLogItem
-            // 
-            this.ShowLogItem.Index = 8;
-            this.ShowLogItem.Text = "Show Logs...";
-            this.ShowLogItem.Click += new System.EventHandler(this.ShowLogItem_Click);
-            // 
-            // aboutItem
-            // 
-            this.aboutItem.Index = 9;
-            this.aboutItem.Text = "About...";
-            this.aboutItem.Click += new System.EventHandler(this.AboutItem_Click);
-            // 
-            // menuItem3
-            // 
-            this.menuItem3.Index = 10;
-            this.menuItem3.Text = "-";
-            // 
-            // quitItem
-            // 
-            this.quitItem.Index = 11;
-            this.quitItem.Text = "&Quit";
-            this.quitItem.Click += new System.EventHandler(this.Quit_Click);
-            // 
-            // menuItem1
-            // 
-            this.menuItem1.Index = 2;
-            this.menuItem1.Text = "-";
-
-            // 
-            // menuIEProxySettings
-            // 
-            this.menuIEProxySettings.Index = 5;
-            this.menuIEProxySettings.MenuItems.AddRange(new System.Windows.Forms.MenuItem[] {
-            this.menuItemIEProxyGoagent,
-            this.menuItemIEProxyShadowSocks});
-            this.menuIEProxySettings.Text = "IE &Proxy Settings";
-            // 
-            // menuItemIEProxyGoagent
-            // 
-            this.menuItemIEProxyGoagent.Index = 0;
-            this.menuItemIEProxyGoagent.Text = "http://127.0.0.1:8086/proxy.pac";
-            this.menuItemIEProxyGoagent.Click += new EventHandler(menuItemIEProxyGoagent_Click);
-            // 
-            // menuItemIEProxyGoagent
-            // 
-            this.menuItemIEProxyShadowSocks.Index = 1;
-            this.menuItemIEProxyShadowSocks.Text = "http://127.0.0.1:8090/pac";
-            this.menuItemIEProxyShadowSocks.Click += new EventHandler(menuItemIEProxyShadowSocks_Click);
-        }
-
-        void menuItemIEProxyShadowSocks_Click(object sender, EventArgs e)
-        {
-            SystemProxy.SetProxyPac("http://127.0.0.1:8090/pac?t=" + DateTime.Now.ToString("yyyyMMddHHmmssffff"));
-        }
-
-        void menuItemIEProxyGoagent_Click(object sender, EventArgs e)
-        {
-            SystemProxy.SetProxyPac("http://127.0.0.1:8086/proxy.pac");
-            
         }
 
         private void controller_ConfigChanged(object sender, EventArgs e)
         {
             LoadCurrentConfiguration();
+            UpdateTrayIcon();
         }
 
         private void controller_EnableStatusChanged(object sender, EventArgs e)
         {
             enableItem.Checked = controller.GetConfiguration().enabled;
+            modeItem.Enabled = enableItem.Checked;
         }
 
         void controller_ShareOverLANStatusChanged(object sender, EventArgs e)
@@ -269,26 +194,50 @@ namespace Shadowsocks.View
             ShareOverLANItem.Checked = controller.GetConfiguration().shareOverLan;
         }
 
-        void controller_PACFileReadyToOpen(object sender, ShadowsocksController.PathEventArgs e)
+        void controller_EnableGlobalChanged(object sender, EventArgs e)
+        {
+            globalModeItem.Checked = controller.GetConfiguration().global;
+            PACModeItem.Checked = !globalModeItem.Checked;
+        }
+
+        void controller_FileReadyToOpen(object sender, ShadowsocksController.PathEventArgs e)
         {
             string argument = @"/select, " + e.Path;
 
             System.Diagnostics.Process.Start("explorer.exe", argument);
         }
 
+        void ShowBalloonTip(string title, string content, ToolTipIcon icon, int timeout)
+        {
+            _notifyIcon.BalloonTipTitle = title;
+            _notifyIcon.BalloonTipText = content;
+            _notifyIcon.BalloonTipIcon = icon;
+            _notifyIcon.ShowBalloonTip(timeout);
+        }
+
+        void controller_UpdatePACFromGFWListError(object sender, System.IO.ErrorEventArgs e)
+        {
+            ShowBalloonTip(I18N.GetString("Failed to update PAC file"), e.GetException().Message, ToolTipIcon.Error, 5000);
+            Logging.LogUsefulException(e.GetException());
+        }
+
+        void controller_UpdatePACFromGFWListCompleted(object sender, GFWListUpdater.ResultEventArgs e)
+        {
+            string result = e.Success ? I18N.GetString("PAC updated") : I18N.GetString("No updates found. Please report to GFWList if you have problems with it.");
+            ShowBalloonTip(I18N.GetString("Shadowsocks"), result, ToolTipIcon.Info, 1000);
+        }
+
         void updateChecker_NewVersionFound(object sender, EventArgs e)
         {
-            notifyIcon1.BalloonTipTitle = "Shadowsocks " + updateChecker.LatestVersionNumber + " Update Found";
-            notifyIcon1.BalloonTipText = "Click here to download";
-            notifyIcon1.BalloonTipIcon = ToolTipIcon.Info;
-            notifyIcon1.BalloonTipClicked += notifyIcon1_BalloonTipClicked;
-            notifyIcon1.ShowBalloonTip(5000);
+            ShowBalloonTip(String.Format(I18N.GetString("Shadowsocks {0} Update Found"), updateChecker.LatestVersionNumber), I18N.GetString("Click here to download"), ToolTipIcon.Info, 5000);
+            _notifyIcon.BalloonTipClicked += notifyIcon1_BalloonTipClicked;
             _isFirstRun = false;
         }
 
         void notifyIcon1_BalloonTipClicked(object sender, EventArgs e)
         {
             System.Diagnostics.Process.Start(updateChecker.LatestVersionURL);
+            _notifyIcon.BalloonTipClicked -= notifyIcon1_BalloonTipClicked;
         }
 
 
@@ -297,27 +246,33 @@ namespace Shadowsocks.View
             Configuration config = controller.GetConfiguration();
             UpdateServersMenu();
             enableItem.Checked = config.enabled;
+            modeItem.Enabled = config.enabled;
+            globalModeItem.Checked = config.global;
+            PACModeItem.Checked = !config.global;
             ShareOverLANItem.Checked = config.shareOverLan;
             AutoStartupItem.Checked = AutoStartup.Check();
+            onlinePACItem.Checked = onlinePACItem.Enabled && config.useOnlinePac;
+            localPACItem.Checked = !onlinePACItem.Checked;
+            UpdatePACItemsEnabledStatus();
         }
 
         private void UpdateServersMenu()
         {
             var items = ServersItem.MenuItems;
-
-            items.Clear();
+            while (items[0] != SeperatorItem)
+            {
+                items.RemoveAt(0);
+            }
 
             Configuration configuration = controller.GetConfiguration();
             for (int i = 0; i < configuration.configs.Count; i++)
             {
                 Server server = configuration.configs[i];
-                MenuItem item = new MenuItem(string.IsNullOrEmpty(server.remarks) ? server.server + ":" + server.server_port : server.server + ":" + server.server_port + " (" + server.remarks + ")");
+                MenuItem item = new MenuItem(server.FriendlyName());
                 item.Tag = i;
                 item.Click += AServerItem_Click;
-                items.Add(item);
+                items.Add(i, item);
             }
-            items.Add(SeperatorItem);
-            items.Add(ConfigItem);
 
             if (configuration.index >= 0 && configuration.index < configuration.configs.Count)
             {
@@ -329,7 +284,7 @@ namespace Shadowsocks.View
         {
             if (configForm != null)
             {
-                configForm.Focus();
+                configForm.Activate();
             }
             else
             {
@@ -342,7 +297,7 @@ namespace Shadowsocks.View
         void configForm_FormClosed(object sender, FormClosedEventArgs e)
         {
             configForm = null;
-            Util.Util.ReleaseMemory();
+            Util.Utils.ReleaseMemory();
             ShowFirstTimeBalloon();
         }
 
@@ -354,7 +309,7 @@ namespace Shadowsocks.View
         private void Quit_Click(object sender, EventArgs e)
         {
             controller.Stop();
-            notifyIcon1.Visible = false;
+            _notifyIcon.Visible = false;
             Application.Exit();
         }
 
@@ -362,29 +317,40 @@ namespace Shadowsocks.View
         {
             if (_isFirstRun)
             {
-                notifyIcon1.BalloonTipTitle = "Shadowsocks is here";
-                notifyIcon1.BalloonTipText = "You can turn on/off Shadowsocks in the context menu";
-                notifyIcon1.BalloonTipIcon = ToolTipIcon.Info;
-                notifyIcon1.ShowBalloonTip(0);
+                _notifyIcon.BalloonTipTitle = I18N.GetString("Shadowsocks is here");
+                _notifyIcon.BalloonTipText =  I18N.GetString("You can turn on/off Shadowsocks in the context menu");
+                _notifyIcon.BalloonTipIcon = ToolTipIcon.Info;
+                _notifyIcon.ShowBalloonTip(0);
                 _isFirstRun = false;
             }
         }
 
         private void AboutItem_Click(object sender, EventArgs e)
         {
-            Process.Start("https://github.com/clowwindy/shadowsocks-csharp");
+            Process.Start("https://github.com/shadowsocks/shadowsocks-csharp");
         }
 
-        private void notifyIcon1_DoubleClick(object sender, EventArgs e)
+        private void notifyIcon1_DoubleClick(object sender, MouseEventArgs e)
         {
-            ShowConfigForm();
+            if (e.Button == MouseButtons.Left)
+            {
+                ShowConfigForm();
+            }
         }
-
 
         private void EnableItem_Click(object sender, EventArgs e)
         {
-            enableItem.Checked = !enableItem.Checked;
-            controller.ToggleEnable(enableItem.Checked);
+            controller.ToggleEnable(!enableItem.Checked);
+        }
+
+        private void GlobalModeItem_Click(object sender, EventArgs e)
+        {
+            controller.ToggleGlobal(true);
+        }
+
+        private void PACModeItem_Click(object sender, EventArgs e)
+        {
+            controller.ToggleGlobal(false);
         }
 
         private void ShareOverLANItem_Click(object sender, EventArgs e)
@@ -396,6 +362,16 @@ namespace Shadowsocks.View
         private void EditPACFileItem_Click(object sender, EventArgs e)
         {
             controller.TouchPACFile();
+        }
+
+        private void UpdatePACFromGFWListItem_Click(object sender, EventArgs e)
+        {
+            controller.UpdatePACFromGFWList();
+        }
+
+        private void EditUserRuleFileForGFWListItem_Click(object sender, EventArgs e)
+        {
+            controller.TouchUserRuleFile();
         }
 
         private void AServerItem_Click(object sender, EventArgs e)
@@ -419,11 +395,165 @@ namespace Shadowsocks.View
             qrCodeForm.Show();
         }
 
+        private void ScanQRCodeItem_Click(object sender, EventArgs e)
+        {
+            foreach (Screen screen in Screen.AllScreens)
+            {
+                using (Bitmap fullImage = new Bitmap(screen.Bounds.Width,
+                                                screen.Bounds.Height))
+                {
+                    using (Graphics g = Graphics.FromImage(fullImage))
+                    {
+                        g.CopyFromScreen(screen.Bounds.X,
+                                         screen.Bounds.Y,
+                                         0, 0,
+                                         fullImage.Size,
+                                         CopyPixelOperation.SourceCopy);
+                    }
+                    int maxTry = 10;
+                    for (int i = 0; i < maxTry; i++)
+                    {
+                        int marginLeft = (int)((double)fullImage.Width * i / 2.5 / maxTry);
+                        int marginTop = (int)((double)fullImage.Height * i / 2.5 / maxTry);
+                        Rectangle cropRect = new Rectangle(marginLeft, marginTop, fullImage.Width - marginLeft * 2, fullImage.Height - marginTop * 2);
+                        Bitmap target = new Bitmap(screen.Bounds.Width, screen.Bounds.Height);
+
+                        double imageScale = (double)screen.Bounds.Width / (double)cropRect.Width;
+                        using (Graphics g = Graphics.FromImage(target))
+                        {
+                            g.DrawImage(fullImage, new Rectangle(0, 0, target.Width, target.Height),
+                                            cropRect,
+                                            GraphicsUnit.Pixel);
+                        }
+                        var source = new BitmapLuminanceSource(target);
+                        var bitmap = new BinaryBitmap(new HybridBinarizer(source));
+                        QRCodeReader reader = new QRCodeReader();
+                        var result = reader.decode(bitmap);
+                        if (result != null)
+                        {
+                            var success = controller.AddServerBySSURL(result.Text);
+                            QRCodeSplashForm splash = new QRCodeSplashForm();
+                            if (success)
+                            {
+                                splash.FormClosed += splash_FormClosed;
+                            }
+                            else if (result.Text.StartsWith("http://") || result.Text.StartsWith("https://"))
+                            {
+                                _urlToOpen = result.Text;
+                                splash.FormClosed += openURLFromQRCode;
+                            }
+                            else
+                            {
+                                MessageBox.Show(I18N.GetString("Failed to decode QRCode"));
+                                return;
+                            }
+                            double minX = Int32.MaxValue, minY = Int32.MaxValue, maxX = 0, maxY = 0;
+                            foreach (ResultPoint point in result.ResultPoints)
+                            {
+                                minX = Math.Min(minX, point.X);
+                                minY = Math.Min(minY, point.Y);
+                                maxX = Math.Max(maxX, point.X);
+                                maxY = Math.Max(maxY, point.Y);
+                            }
+                            minX /= imageScale;
+                            minY /= imageScale;
+                            maxX /= imageScale;
+                            maxY /= imageScale;
+                            // make it 20% larger
+                            double margin = (maxX - minX) * 0.20f;
+                            minX += -margin + marginLeft;
+                            maxX += margin + marginLeft;
+                            minY += -margin + marginTop;
+                            maxY += margin + marginTop;
+                            splash.Location = new Point(screen.Bounds.X, screen.Bounds.Y);
+                            // we need a panel because a window has a minimal size
+                            // TODO: test on high DPI
+                            splash.TargetRect = new Rectangle((int)minX + screen.Bounds.X, (int)minY + screen.Bounds.Y, (int)maxX - (int)minX, (int)maxY - (int)minY);
+                            splash.Size = new Size(fullImage.Width, fullImage.Height);
+                            splash.Show();
+                            return;
+                        }
+                    }
+                }
+            }
+            MessageBox.Show(I18N.GetString("No QRCode found. Try to zoom in or move it to the center of the screen."));
+        }
+
+        void splash_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            ShowConfigForm();
+        }
+
+        void openURLFromQRCode(object sender, FormClosedEventArgs e)
+        {
+            Process.Start(_urlToOpen);
+        }
+
 		private void AutoStartupItem_Click(object sender, EventArgs e) {
 			AutoStartupItem.Checked = !AutoStartupItem.Checked;
 			if (!AutoStartup.Set(AutoStartupItem.Checked)) {
-				MessageBox.Show("Failed to edit registry");
+				MessageBox.Show(I18N.GetString("Failed to update registry"));
 			}
 		}
+
+        private void LocalPACItem_Click(object sender, EventArgs e)
+        {
+            if (!localPACItem.Checked)
+            {
+                localPACItem.Checked = true;
+                onlinePACItem.Checked = false;
+                controller.UseOnlinePAC(false);
+                UpdatePACItemsEnabledStatus();
+            }
+        }
+
+        private void OnlinePACItem_Click(object sender, EventArgs e)
+        {
+            if (!onlinePACItem.Checked)
+            {
+                if (String.IsNullOrEmpty(controller.GetConfiguration().pacUrl))
+                {
+                    UpdateOnlinePACURLItem_Click(sender, e);
+                }
+                if (!String.IsNullOrEmpty(controller.GetConfiguration().pacUrl))
+                {
+                    localPACItem.Checked = false;
+                    onlinePACItem.Checked = true;
+                    controller.UseOnlinePAC(true);
+                }
+                UpdatePACItemsEnabledStatus();
+            }
+        }
+
+        private void UpdateOnlinePACURLItem_Click(object sender, EventArgs e)
+        {
+            string origPacUrl = controller.GetConfiguration().pacUrl;
+            string pacUrl = Microsoft.VisualBasic.Interaction.InputBox(
+                I18N.GetString("Please input PAC Url"),
+                I18N.GetString("Edit Online PAC URL"),
+                origPacUrl, -1, -1);
+            if (!string.IsNullOrEmpty(pacUrl) && pacUrl != origPacUrl)
+            {
+                controller.SavePACUrl(pacUrl);
+            }
+        }
+
+        private void UpdatePACItemsEnabledStatus()
+        {
+            if (this.localPACItem.Checked)
+            {
+                this.editLocalPACItem.Enabled = true;
+                this.updateFromGFWListItem.Enabled = true;
+                this.editGFWUserRuleItem.Enabled = true;
+                this.editOnlinePACItem.Enabled = false;
+            }
+            else
+            {
+                this.editLocalPACItem.Enabled = false;
+                this.updateFromGFWListItem.Enabled = false;
+                this.editGFWUserRuleItem.Enabled = false;
+                this.editOnlinePACItem.Enabled = true;
+            }
+        }
     }
 }

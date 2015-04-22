@@ -3,36 +3,42 @@ Shadowsocks for Windows
 
 [![Build Status]][Appveyor]
 
-### Features
+#### Features
 
-1. Native Windows UI
-2. Fast system proxy switching
-3. Compatible with IE
-4. Builtin PAC server with user editable PAC
-5. QRCode generation
-6. Only a single exe file of 200KB size
+1. System proxy configuration
+2. Fast profile switching
+3. PAC mode and global mode
+4. GFWList and user rules
+5. Supports HTTP proxy
 
-### Download
+#### Download
 
-Download [latest release].
+Download a [latest release].
 
-For Windows 7 and older, please download Shadowsocks-win-x.x.x.zip.
+For >= Windows 8 or with .Net 4.0, download Shadowsocks-win-dotnet4.0-x.x.x.zip.
 
-For Windows 8 and newer, please download Shadowsocks-win-dotnet4.0-x.x.x.zip.
+For <= Windows 7 or with .Net 2.0, download Shadowsocks-win-x.x.x.zip.
 
-### Usage
+#### Usage
 
-1. Find Shadowsocks icon in notification tray
+1. Find Shadowsocks icon in the notification tray
 2. You can add multiple servers in servers menu
-3. After servers are added, click Enable menu item to enable system proxy
-4. After you saved PAC file with any editor, Shadowsocks will notify browsers
-about the change automatically
-5. Please disable other proxy addons in your browser, or set them to use
-system proxy
-6. You may need to install VC 2008 Runtime and .Net framework if Shadowsocks
-failed to start
+3. Select Enable System Proxy menu to enable system proxy. Please disable other
+proxy addons in your browser, or set them to use system proxy
+4. You can also configure your browser proxy manually if you don't want to enable
+system proxy. Set Socks5 or HTTP proxy to 127.0.0.1:1080. You can change this
+port in Server -> Edit Servers
+5. You can change PAC rules by editing the PAC file. When you save the PAC file
+with any editor, Shadowsocks will notify browsers about the change automatically
+6. You can also update the PAC file from GFWList. Note your modifications to the PAC
+file will be lost. However you can put your rules in the user rule file for GFWList.
+Don't forget to update from GFWList again after you've edited the user rule
 
-### License
+### Develop
+
+Visual Studio Express 2012 is recommended.
+
+#### License
 
 GPLv3
 
